@@ -2,21 +2,41 @@
 # 
 # tournament.py -- implementation of a Swiss-system tournament
 #
-
 import psycopg2
-
 
 def connect():
     """Connect to the PostgreSQL database.  Returns a database connection."""
     return psycopg2.connect("dbname=tournament")
+
+''' The enhanced way to connect to database and cursor at a same time:
+    
+    def connect(database_name="tournament"):
+        try: 
+            db = psycopg2.connect("dbname={}".format(database_name))
+            c = db.cursor()
+            return db, c
+        except:
+            print("some error message")
+    
+    Then the functions should look like this:
+    
+    def register_player(name):
+        db, c = connect()
+        
+        query = "insert into players (name) values (%s);"
+        parameter = (name,)
+        c.execute(query, parameter)
+        
+        db.commit()
+        db.close()
+'''
 
 
 def deleteMatches():
     """Remove all the match records from the database."""
     conn = connect()
     c = conn.cursor()
-    c.execute("update Matches set wins = 0, matches = 0;")
-    #c.execute("select * from Matches;")
+    c.execute("DELETE FROM matches;")
     conn.commit()
     c.close()
     conn.close()
@@ -26,12 +46,11 @@ def deletePlayers():
     """Remove all the player records from the database."""
     conn = connect()
     c = conn.cursor()
-    c.execute("delete from matches;")
-    c.execute("delete from players;")
+    c.execute("TRUNCATE matches;")  # truncate equals to delete from, but is quicker
+    c.execute("DELETE FROM players;")
     conn.commit()
     c.close()
     conn.close()
-
 
 
 def countPlayers():
@@ -39,7 +58,7 @@ def countPlayers():
     the database should do it"""
     conn = connect()
     c = conn.cursor()
-    c.execute("select count(*) from Players;")
+    c.execute("SELECT count(*) FROM players;")
     number = c.fetchone()[0]
     conn.commit()
     c.close()
@@ -58,14 +77,13 @@ def registerPlayer(name):
     """
     conn = connect()
     c = conn.cursor()
-    c.execute("insert into Players (name) values (%s)", (name,))
-    c.execute("select ID from Players;")
-    id = c.fetchall()
-    the_number = (id[-1][-1])
-    c.execute("insert into Matches (ID, name, wins, matches) values (%s, %s, %s, %s)", (the_number, name, 0, 0))
+    query = "INSERT INTO players (name) VALUES (%s)"
+    param = (name,)
+    c.execute(query, param)
     conn.commit()
     c.close()
     conn.close()
+
 
 def playerStandings():
     """Returns a list of the players and their win records, sorted by wins.
@@ -81,15 +99,18 @@ def playerStandings():
     """
     conn = connect()
     c = conn.cursor()
-    c.execute("select * from matches order by wins;")
+    query = "SELECT * FROM standings;"
+    c.execute(query)
     result = c.fetchall()
     conn.commit()
     c.close()
     conn.close()
     return result
 
+
 def reportMatch(winner, loser):
     """Records the outcome of a single match between two players.
+
 
     Args:
       winner:  the id number of the player who won
@@ -97,19 +118,11 @@ def reportMatch(winner, loser):
     """
     conn = connect()
     c = conn.cursor()
-    c.execute("select wins from matches where id = %s", (winner,))
-    win = c.fetchone()[0]
-    c.execute("select matches from matches where id = %s", (loser,))
-    match = c.fetchone()[0]
-    c.execute("update matches set wins = (%s), matches = (%s) "
-              "where id = %s", ((win + 1), (match +1), winner))
-    c.execute("update matches set matches = (%s) "
-              "where id = %s", ((match + 1), loser))
+    c.execute("insert into matches (winner, loser) values ((%s), (%s))", (winner, loser))
     conn.commit()
     c.close()
     conn.close()
 
- 
  
 def swissPairings():
     """Returns a list of pairs of players for the next round of a match.
@@ -130,14 +143,13 @@ def swissPairings():
     c = conn.cursor()
     result = []
     pair = []
-    c.execute("create view comparison as select id, name, wins from Matches "
-                  "group by wins, id, name "
-                  "order by wins desc;")
-    for x in range (0, 8, 2): # here the number of loops should be taken
-        # from a query select count(id) as num or so...I'll do it later
-        c.execute("select id, name, wins from comparison "
-                  "limit 2 offset 0 + (%s)", (x,))
-        players= c.fetchall()
+    c.execute("SELECT COUNT(*) FROM standings;")
+    players_count = c.fetchone()[0]
+
+    for x in range(0, players_count, 2):
+        c.execute("SELECT id, name, wins FROM standings "
+                  "LIMIT 2 OFFSET 0 + (%s)", (x,))
+        players = c.fetchall()
         pair.append(players[0][0])
         pair.append(players[0][1])
         pair.append(players[1][0])
@@ -145,7 +157,6 @@ def swissPairings():
         result.append(pair)
         pair = []
     return result
-    conn.commit()
     c.close()
     conn.close()
 
